@@ -1,0 +1,2 @@
+streamlit[auth]>=1.55
+psycopg[binary]>=3.2

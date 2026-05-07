@@ -1,0 +1,7 @@
+__pycache__/
+.streamlit/*
+!.streamlit/config.toml
+.venv/
+venv/
+data/
+*.pyc
