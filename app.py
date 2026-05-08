@@ -1455,13 +1455,76 @@ def render_learning_panel() -> None:
 
 
 def render_sign_in() -> None:
-    render_page_intro(
-        "Sign in",
-        "Use your email identity so your cards, GitHub repo, notes, and review schedule stay separate.",
-        "Account",
+    st.markdown(
+        """
+        <section class="auth-shell">
+            <div class="auth-hero">
+                <div class="auth-copy">
+                    <p class="eyebrow">DSA Flashcards</p>
+                    <h1>Remember the patterns you already solved.</h1>
+                    <p class="auth-lede">
+                        Import solved NeetCode submissions, write memory notes, and review each problem on a schedule
+                        that adapts to how well you recall it.
+                    </p>
+                    <div class="auth-pill-row">
+                        <span class="auth-pill auth-pill-teal">GitHub import</span>
+                        <span class="auth-pill auth-pill-indigo">Private queue</span>
+                        <span class="auth-pill auth-pill-gold">Recall schedule</span>
+                    </div>
+                </div>
+                <div class="auth-preview" aria-hidden="true">
+                    <div class="auth-preview-top">
+                        <span>Review Queue</span>
+                        <strong>Today</strong>
+                    </div>
+                    <div class="auth-preview-card auth-preview-active">
+                        <div>
+                            <strong>Anagram Groups</strong>
+                            <span>Arrays & Hashing</span>
+                        </div>
+                        <em>Due now</em>
+                    </div>
+                    <div class="auth-preview-card">
+                        <div>
+                            <strong>Longest Substring</strong>
+                            <span>Sliding Window</span>
+                        </div>
+                        <em>3d</em>
+                    </div>
+                    <div class="auth-flow">
+                        <span>Recall</span>
+                        <span>Work</span>
+                        <span>Compare</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="auth-action-panel">
+                <div>
+                    <p class="eyebrow">Personal Workspace</p>
+                    <h2>Your cards stay tied to your email.</h2>
+                    <p>Each learner gets a separate flashcard library, GitHub source, notes, and review history.</p>
+                </div>
+                <div class="auth-feature-grid">
+                    <div>
+                        <strong>1</strong>
+                        <span>Add or import solved problems</span>
+                    </div>
+                    <div>
+                        <strong>2</strong>
+                        <span>Recall before revealing code</span>
+                    </div>
+                    <div>
+                        <strong>3</strong>
+                        <span>Rate recall to schedule the next review</span>
+                    </div>
+                </div>
+            </div>
+        </section>
+        """,
+        unsafe_allow_html=True,
     )
-    render_notice("Personal workspace", "Each signed-in learner gets a separate flashcard library and review queue.")
-    if st.button("Sign in", type="primary"):
+    if st.button("Sign in with Google", type="primary"):
         st.login()
 
 
@@ -1715,6 +1778,258 @@ def render_header() -> None:
             color: var(--teal);
             font-size: 0.82rem;
             font-weight: 720;
+        }
+
+        .auth-shell {
+            max-width: 1180px;
+            margin: 1.15rem auto 0;
+            padding-bottom: 2rem;
+        }
+
+        .auth-hero {
+            display: grid;
+            grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+            gap: 2rem;
+            align-items: stretch;
+            min-height: 28rem;
+            padding: clamp(1.4rem, 3vw, 2.35rem);
+            border-radius: 8px;
+            background:
+                linear-gradient(135deg, rgba(17, 26, 23, 0.98), rgba(20, 53, 48, 0.96) 54%, rgba(43, 48, 86, 0.94)),
+                repeating-linear-gradient(90deg, rgba(255,255,255,0.055) 0 1px, transparent 1px 56px);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: 0 28px 70px rgba(23, 33, 29, 0.18);
+            overflow: hidden;
+            position: relative;
+        }
+
+        .auth-hero::before {
+            content: "";
+            position: absolute;
+            inset: auto 0 0;
+            height: 6px;
+            background: linear-gradient(90deg, var(--teal), var(--gold), var(--coral), var(--indigo));
+        }
+
+        .auth-copy,
+        .auth-preview {
+            position: relative;
+            z-index: 1;
+        }
+
+        .auth-copy {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            max-width: 690px;
+        }
+
+        .auth-copy .eyebrow,
+        .auth-action-panel .eyebrow {
+            margin: 0 0 0.65rem;
+            color: #93e3d6;
+            font-size: 0.8rem;
+            font-weight: 760;
+            letter-spacing: 0;
+            text-transform: uppercase;
+        }
+
+        .auth-copy h1 {
+            max-width: 730px;
+            margin: 0;
+            color: #ffffff;
+            font-size: clamp(2.6rem, 5vw, 4.8rem);
+            line-height: 0.98;
+            letter-spacing: 0;
+            font-weight: 790;
+        }
+
+        .auth-lede {
+            max-width: 650px;
+            margin: 1.15rem 0 0;
+            color: #c8d8d2;
+            font-size: clamp(1rem, 1.5vw, 1.18rem);
+            line-height: 1.58;
+        }
+
+        .auth-pill-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            margin-top: 1.35rem;
+        }
+
+        .auth-pill {
+            display: inline-flex;
+            align-items: center;
+            min-height: 2rem;
+            padding: 0.34rem 0.7rem;
+            border-radius: 999px;
+            font-size: 0.84rem;
+            font-weight: 720;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            color: #ffffff;
+        }
+
+        .auth-pill-teal { background: rgba(15, 118, 110, 0.35); }
+        .auth-pill-indigo { background: rgba(70, 86, 165, 0.36); }
+        .auth-pill-gold { background: rgba(185, 135, 23, 0.32); }
+
+        .auth-preview {
+            align-self: center;
+            padding: 1rem;
+            border-radius: 8px;
+            background: rgba(248, 250, 249, 0.96);
+            border: 1px solid rgba(255, 255, 255, 0.58);
+            box-shadow: 0 24px 55px rgba(3, 7, 18, 0.24);
+        }
+
+        .auth-preview-top,
+        .auth-preview-card,
+        .auth-flow {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 0.9rem;
+        }
+
+        .auth-preview-top {
+            margin-bottom: 0.85rem;
+            color: var(--muted);
+            font-size: 0.84rem;
+            font-weight: 720;
+        }
+
+        .auth-preview-top strong {
+            color: var(--coral);
+        }
+
+        .auth-preview-card {
+            min-height: 4.7rem;
+            margin-bottom: 0.72rem;
+            padding: 0.85rem;
+            border-radius: 8px;
+            background: #ffffff;
+            border: 1px solid var(--border);
+        }
+
+        .auth-preview-active {
+            border-color: rgba(15, 118, 110, 0.34);
+            box-shadow: inset 4px 0 0 var(--teal);
+        }
+
+        .auth-preview-card strong,
+        .auth-preview-card span {
+            display: block;
+        }
+
+        .auth-preview-card strong {
+            color: var(--ink);
+            font-size: 0.98rem;
+        }
+
+        .auth-preview-card span {
+            margin-top: 0.25rem;
+            color: var(--muted);
+            font-size: 0.83rem;
+        }
+
+        .auth-preview-card em {
+            font-style: normal;
+            color: var(--teal);
+            font-size: 0.82rem;
+            font-weight: 760;
+            white-space: nowrap;
+        }
+
+        .auth-flow {
+            margin-top: 0.95rem;
+            padding-top: 0.95rem;
+            border-top: 1px solid var(--border);
+        }
+
+        .auth-flow span {
+            flex: 1;
+            min-height: 2rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            background: var(--surface-soft);
+            color: var(--ink);
+            font-size: 0.78rem;
+            font-weight: 740;
+        }
+
+        .auth-action-panel {
+            display: grid;
+            grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+            gap: 1.1rem;
+            margin-top: 1rem;
+            padding: 1rem;
+            border-radius: 8px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            box-shadow: 0 16px 38px rgba(23, 33, 29, 0.08);
+        }
+
+        .auth-action-panel .eyebrow {
+            color: var(--teal);
+        }
+
+        .auth-action-panel h2 {
+            margin: 0;
+            color: var(--ink);
+            font-size: 1.28rem;
+            line-height: 1.2;
+        }
+
+        .auth-action-panel p {
+            margin: 0.45rem 0 0;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .auth-feature-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.65rem;
+        }
+
+        .auth-feature-grid div {
+            min-height: 6rem;
+            padding: 0.8rem;
+            border-radius: 8px;
+            background: #fbfdfc;
+            border: 1px solid var(--border);
+        }
+
+        .auth-feature-grid strong {
+            width: 1.75rem;
+            height: 1.75rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 999px;
+            background: var(--teal-soft);
+            color: var(--teal);
+            font-size: 0.86rem;
+        }
+
+        .auth-feature-grid span {
+            display: block;
+            margin-top: 0.7rem;
+            color: var(--ink);
+            line-height: 1.35;
+            font-size: 0.9rem;
+            font-weight: 680;
+        }
+
+        [data-testid="stVerticalBlock"]:has(.auth-shell) .stButton > button {
+            min-width: 15rem;
+            min-height: 3rem;
+            margin-top: 0.85rem;
+            font-size: 1rem;
         }
 
         .metric-card {
@@ -2316,6 +2631,37 @@ def render_header() -> None:
 
             .page-intro {
                 align-items: flex-start;
+            }
+
+            .auth-shell {
+                margin-top: 0.4rem;
+            }
+
+            .auth-hero,
+            .auth-action-panel {
+                grid-template-columns: 1fr;
+            }
+
+            .auth-hero {
+                min-height: auto;
+                padding: 1.15rem;
+            }
+
+            .auth-copy h1 {
+                font-size: clamp(2.25rem, 12vw, 3.25rem);
+            }
+
+            .auth-preview {
+                width: 100%;
+            }
+
+            .auth-feature-grid {
+                grid-template-columns: 1fr;
+            }
+
+            [data-testid="stVerticalBlock"]:has(.auth-shell) .stButton > button {
+                width: 100%;
+                min-width: 0;
             }
 
             .review-title,
