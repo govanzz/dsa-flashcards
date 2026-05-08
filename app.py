@@ -64,6 +64,7 @@ SUPPORTED_IMPORT_EXTENSIONS = {
     "Swift (.swift)": ".swift",
     "SQL (.sql)": ".sql",
 }
+GENERIC_GITHUB_REPO_EXAMPLE = "https://github.com/your-username/neetcode-submissions"
 
 RATING_HELP = {
     "Again": "I could not recall the idea.",
@@ -815,7 +816,7 @@ def parse_github_repo(value: str) -> tuple[str, str]:
         parts = [part for part in cleaned.split("/") if part]
 
     if len(parts) < 2:
-        raise GithubImportError("Use a repo like govanzz/neetcode-submissions.")
+        raise GithubImportError("Use a repo like your-username/neetcode-submissions.")
     return parts[0], parts[1]
 
 
@@ -2146,8 +2147,8 @@ def github_import_screen() -> None:
 
     repo_value = st.text_input(
         "GitHub repository",
-        value=saved_source.get("repo_url") or "https://github.com/govanzz/neetcode-submissions",
-        placeholder="https://github.com/govanzz/neetcode-submissions",
+        value=saved_source.get("repo_url") or "",
+        placeholder=GENERIC_GITHUB_REPO_EXAMPLE,
     )
     meta_cols = st.columns([1, 1, 1])
     branch_value = meta_cols[0].text_input("Branch", value=saved_source.get("branch") or "main", placeholder="main")
