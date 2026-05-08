@@ -1414,25 +1414,23 @@ def render_upcoming_list(cards: list[dict[str, Any]]) -> None:
     rows = []
     for card in cards:
         rows.append(
-            f"""
-            <div class="upcoming-row">
-                <div>
-                    <strong>{html_text(card['title'])}</strong>
-                    <span>{html_text(card['difficulty'])} | {html_text(topic_badges(card['topics']))}</span>
-                </div>
-                <div class="upcoming-date">{html_text(format_due(card['next_review_at']))}</div>
-            </div>
-            """
+            '<div class="upcoming-row">'
+            "<div>"
+            f"<strong>{html_text(card['title'])}</strong>"
+            f"<span>{html_text(card['difficulty'])} | {html_text(topic_badges(card['topics']))}</span>"
+            "</div>"
+            f'<div class="upcoming-date">{html_text(format_due(card["next_review_at"]))}</div>'
+            "</div>"
         )
 
     st.markdown(
-        f"""
-        <section class="content-card">
-            <h3>Upcoming Reviews</h3>
-            <p>The next cards scheduled by your recall history.</p>
-            {''.join(rows)}
-        </section>
-        """,
+        (
+            '<section class="content-card">'
+            "<h3>Upcoming Reviews</h3>"
+            "<p>The next cards scheduled by your recall history.</p>"
+            f"{''.join(rows)}"
+            "</section>"
+        ),
         unsafe_allow_html=True,
     )
 
