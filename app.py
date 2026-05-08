@@ -1158,7 +1158,7 @@ def render_sidebar_account() -> None:
     )
 
     if auth_configured():
-        if st.sidebar.button("Log out", width="stretch"):
+        if st.sidebar.button("Sign out", width="stretch"):
             st.logout()
     else:
         with st.sidebar.expander("Switch local user"):
@@ -1826,6 +1826,25 @@ def render_header() -> None:
         [data-testid="stBaseButton-primary"]:hover {
             background: #0c625d !important;
             border-color: #0c625d !important;
+        }
+
+        [data-testid="stSidebar"] .stButton > button {
+            background: rgba(255, 255, 255, 0.07) !important;
+            border: 1px solid rgba(255, 255, 255, 0.16) !important;
+            color: #eef6f2 !important;
+            min-height: 2.55rem;
+            box-shadow: none !important;
+        }
+
+        [data-testid="stSidebar"] .stButton > button:hover {
+            background: rgba(212, 93, 72, 0.18) !important;
+            border-color: rgba(248, 113, 113, 0.48) !important;
+            color: #ffffff !important;
+        }
+
+        [data-testid="stSidebar"] .stButton > button:focus {
+            box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.18) !important;
+            outline: none !important;
         }
 
         .stTextInput input,
