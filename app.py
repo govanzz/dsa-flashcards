@@ -1498,26 +1498,30 @@ def render_sign_in() -> None:
                     </div>
                 </div>
             </div>
-
-            <div class="auth-action-panel">
+        </section>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(
+        """
+        <section class="auth-action-panel">
+            <div>
+                <p class="eyebrow">Personal Workspace</p>
+                <h2>Your cards stay tied to your email.</h2>
+                <p>Each learner gets a separate flashcard library, GitHub source, notes, and review history.</p>
+            </div>
+            <div class="auth-feature-grid">
                 <div>
-                    <p class="eyebrow">Personal Workspace</p>
-                    <h2>Your cards stay tied to your email.</h2>
-                    <p>Each learner gets a separate flashcard library, GitHub source, notes, and review history.</p>
+                    <strong>1</strong>
+                    <span>Add or import solved problems</span>
                 </div>
-                <div class="auth-feature-grid">
-                    <div>
-                        <strong>1</strong>
-                        <span>Add or import solved problems</span>
-                    </div>
-                    <div>
-                        <strong>2</strong>
-                        <span>Recall before revealing code</span>
-                    </div>
-                    <div>
-                        <strong>3</strong>
-                        <span>Rate recall to schedule the next review</span>
-                    </div>
+                <div>
+                    <strong>2</strong>
+                    <span>Recall before revealing code</span>
+                </div>
+                <div>
+                    <strong>3</strong>
+                    <span>Rate recall to schedule the next review</span>
                 </div>
             </div>
         </section>
@@ -1827,7 +1831,7 @@ def render_header() -> None:
         .auth-copy .eyebrow,
         .auth-action-panel .eyebrow {
             margin: 0 0 0.65rem;
-            color: #93e3d6;
+            color: #93e3d6 !important;
             font-size: 0.8rem;
             font-weight: 760;
             letter-spacing: 0;
@@ -1837,7 +1841,7 @@ def render_header() -> None:
         .auth-copy h1 {
             max-width: 730px;
             margin: 0;
-            color: #ffffff;
+            color: #ffffff !important;
             font-size: clamp(2.6rem, 5vw, 4.8rem);
             line-height: 0.98;
             letter-spacing: 0;
@@ -1847,7 +1851,7 @@ def render_header() -> None:
         .auth-lede {
             max-width: 650px;
             margin: 1.15rem 0 0;
-            color: #c8d8d2;
+            color: #dbe7e3 !important;
             font-size: clamp(1rem, 1.5vw, 1.18rem);
             line-height: 1.58;
         }
