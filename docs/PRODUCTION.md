@@ -5,6 +5,7 @@ This app is ready for a hosted production-style setup with:
 - Streamlit Community Cloud for the live app.
 - Supabase or Neon Postgres for persistent storage.
 - Optional Streamlit OIDC login for real user accounts.
+- Admin-only monitoring, audit logs, captured error reports, and GitHub import rate limits.
 
 Every card, review, GitHub source, note, and backup is scoped to a `user_email`.
 
@@ -46,6 +47,10 @@ Add these in Streamlit Community Cloud under app settings / secrets:
 ```toml
 DATABASE_URL = "postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
 
+# Optional GitHub import rate limits per signed-in user.
+GITHUB_IMPORTS_PER_HOUR = 5
+GITHUB_IMPORTS_PER_DAY = 25
+
 # Optional Google/OIDC login.
 # Without this section, the app runs with local email switching.
 [auth]
@@ -54,6 +59,10 @@ cookie_secret = "CHANGE_ME_TO_A_LONG_RANDOM_SECRET"
 client_id = "GOOGLE_CLIENT_ID"
 client_secret = "GOOGLE_CLIENT_SECRET"
 server_metadata_url = "https://accounts.google.com/.well-known/openid-configuration"
+
+# Optional admin console access.
+[admin]
+emails = ["YOUR_EMAIL@gmail.com"]
 ```
 
 For local production testing, put the same content in `.streamlit/secrets.toml`.
@@ -74,6 +83,8 @@ For local production testing, put the same content in `.streamlit/secrets.toml`.
 - Streamlit Community Cloud deploys from a GitHub repo and lets you add secrets in app settings.
 - Supabase provides Postgres connection strings from the project dashboard.
 - Streamlit login uses OIDC settings in `[auth]` and exposes the signed-in user through `st.user`.
+- The Admin page is only shown when the signed-in email is listed in `[admin].emails`.
+- Unexpected app exceptions are recorded in `app_errors`; GitHub imports are tracked in `import_runs`; important actions are tracked in `audit_logs`.
 
 Sources:
 

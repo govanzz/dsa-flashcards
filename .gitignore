@@ -10,5 +10,6 @@ data/
 *.db
 client_secret*.json
 secrets.toml
+secrets*.txt
 local-secrets*.txt
 DO_NOT_COMMIT_secrets*.txt

@@ -5,6 +5,7 @@ import math
 import os
 import re
 import sqlite3
+import traceback
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
@@ -27,6 +28,8 @@ APP_DIR = Path(__file__).parent
 DATA_DIR = APP_DIR / "data"
 DB_PATH = DATA_DIR / "flashcards.db"
 LOCAL_DEFAULT_EMAIL = "local@dsa-flashcards.dev"
+DEFAULT_GITHUB_IMPORTS_PER_HOUR = 5
+DEFAULT_GITHUB_IMPORTS_PER_DAY = 25
 
 COMMON_TOPICS = [
     "Arrays & Hashing",
@@ -134,6 +137,46 @@ def secret_value(key: str) -> str:
         return ""
 
 
+def secret_int(key: str, default: int) -> int:
+    raw = secret_value(key)
+    if not raw:
+        return default
+    try:
+        return max(1, int(raw))
+    except ValueError:
+        return default
+
+
+def parse_email_list(value: Any) -> set[str]:
+    if value is None:
+        return set()
+    if isinstance(value, str):
+        parts = re.split(r"[,;\s]+", value)
+    elif isinstance(value, (list, tuple, set)):
+        parts = [str(item) for item in value]
+    else:
+        parts = [str(value)]
+    return {normalize_email(part) for part in parts if normalize_email(part)}
+
+
+def admin_emails() -> set[str]:
+    emails = parse_email_list(os.getenv("ADMIN_EMAILS"))
+    try:
+        emails |= parse_email_list(st.secrets.get("ADMIN_EMAILS"))
+        admin_section = st.secrets.get("admin", {})
+        if hasattr(admin_section, "get"):
+            emails |= parse_email_list(admin_section.get("emails"))
+    except Exception:
+        pass
+    if not emails and not auth_configured():
+        emails.add(LOCAL_DEFAULT_EMAIL)
+    return emails
+
+
+def is_admin() -> bool:
+    return active_user_email() in admin_emails()
+
+
 def database_url() -> str:
     return secret_value("DATABASE_URL").strip()
 
@@ -185,6 +228,104 @@ def ensure_column(conn: DatabaseConnection, table: str, column: str, definition:
     columns = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
     if column not in columns:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+
+def init_sqlite_operational_tables(conn: DatabaseConnection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT DEFAULT '',
+            action TEXT NOT NULL,
+            entity TEXT DEFAULT '',
+            details TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS import_runs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT DEFAULT '',
+            repo_url TEXT DEFAULT '',
+            branch TEXT DEFAULT '',
+            language TEXT DEFAULT '',
+            status TEXT NOT NULL,
+            total_files INTEGER DEFAULT 0,
+            created_count INTEGER DEFAULT 0,
+            updated_count INTEGER DEFAULT 0,
+            skipped_count INTEGER DEFAULT 0,
+            error_message TEXT DEFAULT '',
+            started_at TEXT NOT NULL,
+            finished_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_errors (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_email TEXT DEFAULT '',
+            location TEXT DEFAULT '',
+            message TEXT NOT NULL,
+            traceback TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_import_runs_user_started ON import_runs(user_email, started_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_app_errors_created ON app_errors(created_at)")
+
+
+def init_postgres_operational_tables(conn: DatabaseConnection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS audit_logs (
+            id BIGSERIAL PRIMARY KEY,
+            user_email TEXT DEFAULT '',
+            action TEXT NOT NULL,
+            entity TEXT DEFAULT '',
+            details TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS import_runs (
+            id BIGSERIAL PRIMARY KEY,
+            user_email TEXT DEFAULT '',
+            repo_url TEXT DEFAULT '',
+            branch TEXT DEFAULT '',
+            language TEXT DEFAULT '',
+            status TEXT NOT NULL,
+            total_files INTEGER DEFAULT 0,
+            created_count INTEGER DEFAULT 0,
+            updated_count INTEGER DEFAULT 0,
+            skipped_count INTEGER DEFAULT 0,
+            error_message TEXT DEFAULT '',
+            started_at TEXT NOT NULL,
+            finished_at TEXT
+        )
+        """
+    )
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS app_errors (
+            id BIGSERIAL PRIMARY KEY,
+            user_email TEXT DEFAULT '',
+            location TEXT DEFAULT '',
+            message TEXT NOT NULL,
+            traceback TEXT DEFAULT '',
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_audit_logs_created ON audit_logs(created_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_import_runs_user_started ON import_runs(user_email, started_at)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_app_errors_created ON app_errors(created_at)")
 
 
 def init_sqlite_db() -> None:
@@ -259,6 +400,7 @@ def init_sqlite_db() -> None:
             )
             """
         )
+        init_sqlite_operational_tables(conn)
 
 
 def init_postgres_db() -> None:
@@ -335,6 +477,7 @@ def init_postgres_db() -> None:
             )
             """
         )
+        init_postgres_operational_tables(conn)
 
 
 def init_db() -> None:
@@ -360,6 +503,177 @@ def fetch_all(query: str, params: tuple[Any, ...] = ()) -> list[dict[str, Any]]:
     with connect() as conn:
         rows = conn.execute(query, params).fetchall()
     return [dict(row) for row in rows]
+
+
+def utc_since(**kwargs: int) -> str:
+    return (datetime.now(UTC) - timedelta(**kwargs)).replace(microsecond=0).isoformat()
+
+
+def redact_sensitive(value: Any) -> str:
+    text = str(value or "")
+    secret_candidates = [
+        database_url(),
+        secret_value("DATABASE_URL"),
+    ]
+    try:
+        auth_section = st.secrets.get("auth", {})
+        if hasattr(auth_section, "get"):
+            secret_candidates.extend(
+                [
+                    str(auth_section.get("client_secret", "") or ""),
+                    str(auth_section.get("cookie_secret", "") or ""),
+                ]
+            )
+    except Exception:
+        pass
+
+    for secret in secret_candidates:
+        if secret and len(secret) >= 8:
+            text = text.replace(secret, "[redacted]")
+
+    text = re.sub(r"postgres(?:ql)?://[^@\s]+@", "postgresql://[redacted]@", text)
+    text = re.sub(r"GOCSPX-[A-Za-z0-9_\-]+", "GOCSPX-[redacted]", text)
+    text = re.sub(r"Bearer\s+[A-Za-z0-9._\-]+", "Bearer [redacted]", text)
+    return text
+
+
+def details_to_json(details: Any = None) -> str:
+    if details is None:
+        return "{}"
+    try:
+        return redact_sensitive(json.dumps(details, sort_keys=True, default=str))
+    except TypeError:
+        return redact_sensitive(details)
+
+
+def log_audit(action: str, entity: str = "", details: Any = None, user_email: str | None = None) -> None:
+    try:
+        with connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO audit_logs (user_email, action, entity, details, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    normalize_email(user_email or active_user_email()),
+                    action,
+                    entity,
+                    details_to_json(details),
+                    utc_now(),
+                ),
+            )
+    except Exception:
+        pass
+
+
+def record_app_error(location: str, exc: BaseException, user_email: str | None = None) -> None:
+    message = redact_sensitive(f"{type(exc).__name__}: {exc}")
+    trace = redact_sensitive(traceback.format_exc())
+    try:
+        with connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO app_errors (user_email, location, message, traceback, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    normalize_email(user_email or active_user_email()),
+                    location,
+                    message,
+                    trace,
+                    utc_now(),
+                ),
+            )
+    except Exception:
+        pass
+
+
+def github_import_limits() -> tuple[int, int]:
+    per_hour = secret_int("GITHUB_IMPORTS_PER_HOUR", DEFAULT_GITHUB_IMPORTS_PER_HOUR)
+    per_day = secret_int("GITHUB_IMPORTS_PER_DAY", DEFAULT_GITHUB_IMPORTS_PER_DAY)
+    return per_hour, per_day
+
+
+def github_import_usage() -> tuple[int, int]:
+    hour_count = fetch_one(
+        "SELECT COUNT(*) AS count FROM import_runs WHERE user_email = ? AND started_at >= ?",
+        (active_user_email(), utc_since(hours=1)),
+    ) or {"count": 0}
+    day_count = fetch_one(
+        "SELECT COUNT(*) AS count FROM import_runs WHERE user_email = ? AND started_at >= ?",
+        (active_user_email(), utc_since(days=1)),
+    ) or {"count": 0}
+    return int(hour_count["count"] or 0), int(day_count["count"] or 0)
+
+
+def check_github_import_rate_limit() -> tuple[bool, str]:
+    per_hour, per_day = github_import_limits()
+    hour_count, day_count = github_import_usage()
+    if hour_count >= per_hour:
+        return False, f"Import limit reached: {per_hour} GitHub import(s) per hour. Try again later."
+    if day_count >= per_day:
+        return False, f"Import limit reached: {per_day} GitHub import(s) per day. Try again tomorrow."
+    return True, ""
+
+
+def create_import_run(repo_url: str, branch: str, language: str) -> int:
+    started_at = utc_now()
+    with connect() as conn:
+        query = """
+        INSERT INTO import_runs (user_email, repo_url, branch, language, status, started_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """
+        if using_postgres():
+            query += " RETURNING id"
+        cur = conn.execute(
+            query,
+            (active_user_email(), repo_url.strip(), branch.strip(), language, "started", started_at),
+        )
+        if using_postgres():
+            row = cur.fetchone()
+            return int(row["id"])
+        return int(cur.lastrowid)
+
+
+def finish_import_run(
+    run_id: int | None,
+    status: str,
+    created: int = 0,
+    updated: int = 0,
+    skipped: int = 0,
+    total_files: int = 0,
+    error_message: str = "",
+) -> None:
+    if run_id is None:
+        return
+    try:
+        with connect() as conn:
+            conn.execute(
+                """
+                UPDATE import_runs
+                SET status = ?,
+                    total_files = ?,
+                    created_count = ?,
+                    updated_count = ?,
+                    skipped_count = ?,
+                    error_message = ?,
+                    finished_at = ?
+                WHERE id = ? AND user_email = ?
+                """,
+                (
+                    status,
+                    total_files,
+                    created,
+                    updated,
+                    skipped,
+                    redact_sensitive(error_message)[:1200],
+                    utc_now(),
+                    run_id,
+                    active_user_email(),
+                ),
+            )
+    except Exception:
+        pass
 
 
 def insert_problem(data: dict[str, Any]) -> int:
@@ -437,6 +751,11 @@ def update_problem(problem_id: int, data: dict[str, Any]) -> None:
                 active_user_email(),
             ),
         )
+    log_audit(
+        "problem_updated",
+        "problem",
+        {"problem_id": problem_id, "title": data.get("title", "").strip()},
+    )
 
 
 def update_problem_notes(problem_id: int, intuition: str, question: str | None = None) -> None:
@@ -459,6 +778,11 @@ def update_problem_notes(problem_id: int, intuition: str, question: str | None =
                 """,
                 (intuition.strip(), question.strip(), utc_now(), problem_id, active_user_email()),
             )
+    log_audit(
+        "problem_notes_updated",
+        "problem",
+        {"problem_id": problem_id, "updated_prompt": question is not None},
+    )
 
 
 def archive_problem(problem_id: int) -> None:
@@ -467,6 +791,7 @@ def archive_problem(problem_id: int) -> None:
             "UPDATE problems SET archived = 1, updated_at = ? WHERE id = ? AND user_email = ?",
             (utc_now(), problem_id, active_user_email()),
         )
+    log_audit("problem_archived", "problem", {"problem_id": problem_id})
 
 
 def restore_problem(problem_id: int) -> None:
@@ -475,6 +800,7 @@ def restore_problem(problem_id: int) -> None:
             "UPDATE problems SET archived = 0, updated_at = ? WHERE id = ? AND user_email = ?",
             (utc_now(), problem_id, active_user_email()),
         )
+    log_audit("problem_restored", "problem", {"problem_id": problem_id})
 
 
 def get_problem(problem_id: int) -> dict[str, Any] | None:
@@ -710,6 +1036,16 @@ def apply_review(problem_id: int, rating: str) -> None:
                 result["next_review_at"],
             ),
         )
+    log_audit(
+        "review_recorded",
+        "review",
+        {
+            "problem_id": problem_id,
+            "rating": rating,
+            "next_review_at": result["next_review_at"],
+            "new_interval": result["new_interval"],
+        },
+    )
 
 
 def stats() -> dict[str, Any]:
@@ -2103,6 +2439,7 @@ def add_problem_screen() -> None:
                 "solved_at": solved_at.isoformat(),
             }
         )
+        log_audit("problem_created", "problem", {"problem_id": problem_id, "title": title.strip(), "source": source})
         st.success(f"Saved card #{problem_id}: {title.strip()}")
 
 
@@ -2156,21 +2493,50 @@ def github_import_screen() -> None:
         ),
     )
     token = option_cols[1].text_input("GitHub token", type="password", placeholder="Optional for private repos or rate limits")
+    per_hour, per_day = github_import_limits()
+    hour_count, day_count = github_import_usage()
+    st.caption(
+        f"Import guardrail: {hour_count}/{per_hour} used this hour, "
+        f"{day_count}/{per_day} used in the last 24 hours."
+    )
 
     if not st.button("Import from GitHub", type="primary"):
         return
 
+    run_id: int | None = None
     try:
         owner, repo = parse_github_repo(repo_value)
+        allowed, limit_message = check_github_import_rate_limit()
+        if not allowed:
+            log_audit(
+                "github_import_rate_limited",
+                "github_import",
+                {"repo": f"{owner}/{repo}", "reason": limit_message},
+            )
+            render_notice("Import paused", limit_message, "warning")
+            return
+
         branch = branch_value.strip() or github_default_branch(owner, repo, token)
         extension = SUPPORTED_IMPORT_EXTENSIONS[language_label]
+        run_id = create_import_run(repo_value, branch, language_label)
         save_github_source(repo_value, branch, language_label, max_cards)
+        log_audit(
+            "github_import_started",
+            "github_import",
+            {"repo": f"{owner}/{repo}", "branch": branch, "language": language_label, "max_cards": max_cards},
+        )
 
         with st.spinner("Reading GitHub repository tree..."):
             tree = github_tree(owner, repo, branch, token)
             submissions = select_latest_submissions(tree, extension, max_cards)
 
         if not submissions:
+            finish_import_run(run_id, "no_submissions")
+            log_audit(
+                "github_import_empty",
+                "github_import",
+                {"repo": f"{owner}/{repo}", "branch": branch, "extension": extension},
+            )
             render_notice(
                 "No submissions found",
                 f"No {extension} submission files were found under {owner}/{repo} on branch {branch}.",
@@ -2212,6 +2578,19 @@ def github_import_screen() -> None:
             )
 
         progress.empty()
+        finish_import_run(run_id, "success", created, updated, skipped, len(submissions))
+        log_audit(
+            "github_import_completed",
+            "github_import",
+            {
+                "repo": f"{owner}/{repo}",
+                "branch": branch,
+                "created": created,
+                "updated": updated,
+                "skipped": skipped,
+                "files": len(submissions),
+            },
+        )
         render_notice(
             "Import complete",
             f"Created {created} card(s), updated {updated}, skipped {skipped}.",
@@ -2220,7 +2599,18 @@ def github_import_screen() -> None:
         st.dataframe(rows, width="stretch", hide_index=True)
 
     except GithubImportError as exc:
+        finish_import_run(run_id, "failed", error_message=str(exc))
+        log_audit("github_import_failed", "github_import", {"error": str(exc)})
         render_notice("Import failed", str(exc), "warning")
+    except Exception as exc:
+        finish_import_run(run_id, "failed", error_message=f"{type(exc).__name__}: {exc}")
+        record_app_error("github_import", exc)
+        log_audit("github_import_error", "github_import", {"error": f"{type(exc).__name__}: {exc}"})
+        render_notice(
+            "Import failed",
+            "Something unexpected happened during the import. The error was recorded for the admin dashboard.",
+            "warning",
+        )
 
 
 def review_screen() -> None:
@@ -2579,6 +2969,151 @@ def import_export_screen() -> None:
     )
 
 
+def count_value(query: str, params: tuple[Any, ...] = ()) -> int:
+    row = fetch_one(query, params) or {"count": 0}
+    return int(row.get("count") or 0)
+
+
+def render_admin_table(title: str, rows: list[dict[str, Any]], empty_message: str) -> None:
+    st.markdown(f"### {title}")
+    if not rows:
+        render_notice(title, empty_message, "success")
+        return
+    st.dataframe(rows, width="stretch", hide_index=True)
+
+
+def admin_screen() -> None:
+    render_page_intro(
+        "Admin Console",
+        "Operational view for users, imports, audit events, and captured app errors.",
+        "Production",
+    )
+
+    if not is_admin():
+        render_notice("Admin only", "Your account is not listed as an admin for this deployment.", "warning")
+        return
+
+    since_24h = utc_since(days=1)
+    since_7d = utc_since(days=7)
+    user_count = count_value(
+        """
+        SELECT COUNT(*) AS count
+        FROM (
+            SELECT user_email FROM problems WHERE user_email <> ''
+            UNION
+            SELECT user_email FROM reviews WHERE user_email <> ''
+            UNION
+            SELECT user_email FROM github_sources WHERE user_email <> ''
+        ) AS users
+        """
+    )
+    active_cards = count_value("SELECT COUNT(*) AS count FROM problems WHERE archived = 0")
+    reviews_7d = count_value("SELECT COUNT(*) AS count FROM reviews WHERE reviewed_at >= ?", (since_7d,))
+    imports_24h = count_value("SELECT COUNT(*) AS count FROM import_runs WHERE started_at >= ?", (since_24h,))
+    errors_24h = count_value("SELECT COUNT(*) AS count FROM app_errors WHERE created_at >= ?", (since_24h,))
+
+    metric_cols = st.columns(5)
+    with metric_cols[0]:
+        render_stat_card("Users", user_count, "Known accounts", "teal")
+    with metric_cols[1]:
+        render_stat_card("Active cards", active_cards, "Across all users", "indigo")
+    with metric_cols[2]:
+        render_stat_card("Reviews, 7 days", reviews_7d, "Recent reps", "gold")
+    with metric_cols[3]:
+        render_stat_card("Imports, 24h", imports_24h, "GitHub runs", "teal")
+    with metric_cols[4]:
+        render_stat_card("Errors, 24h", errors_24h, "Captured exceptions", "coral")
+
+    tabs = st.tabs(["Monitoring", "Import Runs", "Audit Log", "Errors"])
+
+    with tabs[0]:
+        per_hour, per_day = github_import_limits()
+        st.markdown(
+            f"""
+            <section class="content-card">
+                <h3>Runtime Guardrails</h3>
+                <p>GitHub imports are limited to {per_hour} per user per hour and {per_day} per user per 24 hours.</p>
+            </section>
+            """,
+            unsafe_allow_html=True,
+        )
+        busiest_users = fetch_all(
+            """
+            SELECT user_email, COUNT(*) AS imports_24h
+            FROM import_runs
+            WHERE started_at >= ?
+            GROUP BY user_email
+            ORDER BY imports_24h DESC, user_email ASC
+            LIMIT 20
+            """,
+            (since_24h,),
+        )
+        render_admin_table("Import usage, last 24h", busiest_users, "No imports in the last 24 hours.")
+
+        recent_failures = fetch_all(
+            """
+            SELECT started_at, user_email, repo_url, status, error_message
+            FROM import_runs
+            WHERE status <> 'success'
+            ORDER BY started_at DESC
+            LIMIT 20
+            """
+        )
+        render_admin_table("Recent import warnings", recent_failures, "No failed or limited imports recorded.")
+
+    with tabs[1]:
+        runs = fetch_all(
+            """
+            SELECT
+                started_at,
+                finished_at,
+                user_email,
+                repo_url,
+                branch,
+                language,
+                status,
+                total_files,
+                created_count,
+                updated_count,
+                skipped_count,
+                error_message
+            FROM import_runs
+            ORDER BY started_at DESC
+            LIMIT 100
+            """
+        )
+        render_admin_table("GitHub import runs", runs, "No GitHub imports have run yet.")
+
+    with tabs[2]:
+        logs = fetch_all(
+            """
+            SELECT created_at, user_email, action, entity, details
+            FROM audit_logs
+            ORDER BY created_at DESC
+            LIMIT 200
+            """
+        )
+        render_admin_table("Audit events", logs, "No audit events have been recorded yet.")
+
+    with tabs[3]:
+        errors = fetch_all(
+            """
+            SELECT id, created_at, user_email, location, message, traceback
+            FROM app_errors
+            ORDER BY created_at DESC
+            LIMIT 100
+            """
+        )
+        if not errors:
+            render_notice("No captured errors", "The app has not recorded any unexpected exceptions.", "success")
+        for error in errors:
+            with st.expander(f"#{error['id']} {error['created_at']} - {error['location']}"):
+                st.write(f"User: {error.get('user_email') or 'unknown'}")
+                st.code(error.get("message") or "", language="text")
+                if error.get("traceback"):
+                    st.code(error["traceback"], language="python")
+
+
 def main() -> None:
     init_db()
     render_header()
@@ -2598,9 +3133,12 @@ def main() -> None:
     )
     render_sidebar_account()
     st.sidebar.markdown("---")
+    nav_options = ["Dashboard", "Add Problem", "GitHub Import", "Review", "Browse / Edit", "Backup"]
+    if is_admin():
+        nav_options.append("Admin")
     page = st.sidebar.radio(
         "Navigate",
-        ["Dashboard", "Add Problem", "GitHub Import", "Review", "Browse / Edit", "Backup"],
+        nav_options,
     )
     st.sidebar.markdown("---")
     st.sidebar.markdown(
@@ -2626,7 +3164,15 @@ def main() -> None:
         browse_screen()
     elif page == "Backup":
         import_export_screen()
+    elif page == "Admin":
+        admin_screen()
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as exc:
+        record_app_error("main", exc)
+        st.error("Something went wrong. The error has been recorded for the admin dashboard.")
+        with st.expander("Technical detail"):
+            st.code(redact_sensitive(f"{type(exc).__name__}: {exc}"), language="text")
