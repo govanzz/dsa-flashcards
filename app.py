@@ -501,35 +501,18 @@ def update_imported_problem(problem_id: int, data: dict[str, Any]) -> None:
         conn.execute(
             """
             UPDATE problems
-            SET title = ?,
-                source = ?,
-                url = ?,
-                difficulty = ?,
-                topics = ?,
-                status = ?,
-                question = ?,
-                intuition = ?,
-                solution = ?,
-                solved_at = ?,
-                user_email = ?,
+            SET solution = ?,
                 external_source = ?,
                 external_id = ?,
-                imported_at = ?,
+                imported_at = CASE
+                    WHEN imported_at IS NULL OR imported_at = '' THEN ?
+                    ELSE imported_at
+                END,
                 updated_at = ?
             WHERE id = ? AND user_email = ?
             """,
             (
-                data["title"].strip(),
-                data.get("source", ""),
-                data.get("url", "").strip(),
-                data.get("difficulty", "Unknown"),
-                data.get("topics", ""),
-                data.get("status", "Solved"),
-                data.get("question", "").strip(),
-                data.get("intuition", "").strip(),
                 data.get("solution", "").rstrip(),
-                data.get("solved_at") or today_iso(),
-                normalize_email(data.get("user_email") or active_user_email()),
                 data.get("external_source", ""),
                 data.get("external_id", ""),
                 data.get("imported_at") or now,
@@ -2164,7 +2147,14 @@ def github_import_screen() -> None:
     )
 
     option_cols = st.columns([1, 1])
-    update_existing = option_cols[0].checkbox("Update existing imported cards", value=True)
+    update_existing = option_cols[0].checkbox(
+        "Refresh solutions for existing cards",
+        value=True,
+        help=(
+            "Keeps your prompt, notes, topics, solved date, and review schedule. "
+            "Only the saved solution/code is refreshed from GitHub."
+        ),
+    )
     token = option_cols[1].text_input("GitHub token", type="password", placeholder="Optional for private repos or rate limits")
 
     if not st.button("Import from GitHub", type="primary"):
@@ -2203,7 +2193,7 @@ def github_import_screen() -> None:
             if existing and update_existing:
                 update_imported_problem(int(existing["id"]), data)
                 updated += 1
-                action = "Updated"
+                action = "Solution refreshed"
             elif existing:
                 skipped += 1
                 action = "Skipped"
