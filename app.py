@@ -230,6 +230,23 @@ def ensure_column(conn: DatabaseConnection, table: str, column: str, definition:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
+def ensure_postgres_column(conn: DatabaseConnection, table: str, column: str, definition: str) -> None:
+    row = conn.execute(
+        """
+        SELECT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_schema = current_schema()
+              AND table_name = ?
+              AND column_name = ?
+        ) AS column_exists
+        """,
+        (table, column),
+    ).fetchone()
+    if not bool(row["column_exists"]):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {definition}")
+
+
 def init_sqlite_operational_tables(conn: DatabaseConnection) -> None:
     conn.execute(
         """
@@ -436,10 +453,10 @@ def init_postgres_db() -> None:
             )
             """
         )
-        conn.execute("ALTER TABLE problems ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT ''")
-        conn.execute("ALTER TABLE problems ADD COLUMN IF NOT EXISTS external_source TEXT DEFAULT ''")
-        conn.execute("ALTER TABLE problems ADD COLUMN IF NOT EXISTS external_id TEXT DEFAULT ''")
-        conn.execute("ALTER TABLE problems ADD COLUMN IF NOT EXISTS imported_at TEXT")
+        ensure_postgres_column(conn, "problems", "user_email", "TEXT DEFAULT ''")
+        ensure_postgres_column(conn, "problems", "external_source", "TEXT DEFAULT ''")
+        ensure_postgres_column(conn, "problems", "external_id", "TEXT DEFAULT ''")
+        ensure_postgres_column(conn, "problems", "imported_at", "TEXT")
         conn.execute(
             "UPDATE problems SET user_email = ? WHERE user_email IS NULL OR user_email = ''",
             (LOCAL_DEFAULT_EMAIL,),
@@ -460,7 +477,7 @@ def init_postgres_db() -> None:
             )
             """
         )
-        conn.execute("ALTER TABLE reviews ADD COLUMN IF NOT EXISTS user_email TEXT DEFAULT ''")
+        ensure_postgres_column(conn, "reviews", "user_email", "TEXT DEFAULT ''")
         conn.execute(
             "UPDATE reviews SET user_email = ? WHERE user_email IS NULL OR user_email = ''",
             (LOCAL_DEFAULT_EMAIL,),
